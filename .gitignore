@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+backend/venv/
+venv/
+.venv/
+env/
+
+# Data — large files, not for version control
+backend/data/
+data/
+
+# Model checkpoints — large binary files
+backend/checkpoints/
+checkpoints/
+
+# Training logs
+backend/training.log
+training.log
+nohup.out
+
+# Node
+frontend/node_modules/
+node_modules/
+frontend/.next/
+.next/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Distribution
+*.tar.gz
+*.zip

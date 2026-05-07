@@ -7,6 +7,8 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      # Optional: HTTP(S) URL to download pretrained weights if no file in backend/checkpoints/
+      # - CARDIOSENSE_CHECKPOINT_URL=https://github.com/<you>/<repo>/releases/download/v1.0/best_model_fold1.pt
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s

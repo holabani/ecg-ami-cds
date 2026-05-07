@@ -15,6 +15,12 @@ Full-stack AI-powered Clinical Decision Support System with **no cloud dependenc
 docker-compose up --build
 ```
 
+### Pretrained model (no training required for clones)
+
+Cloners get trained inference when **`backend/checkpoints/best_model_fold1.pt`** or **`best_model.pt`** is committed (see `backend/checkpoints/README.md`), or when **`CARDIOSENSE_CHECKPOINT_URL`** points at a downloadable `.pt` (e.g. a GitHub Release asset). Without that, the API still runs but uses **uninitialized weights** (demo mode).
+
+PyTorch is required for neural inference; it is listed in `backend/requirements.txt`.
+
 | Service | URL | Notes |
 |--------|-----|-------|
 | Frontend | http://localhost:3000 | App UI (use `npm run dev -- -p 3001` if port 3000 is in use, e.g. Homebrew Grafana) |

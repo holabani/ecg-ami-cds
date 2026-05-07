@@ -9,9 +9,10 @@ numpy>=1.26.0
 scipy>=1.11.0               # Butterworth bandpass + notch filters (ECGPreprocessor)
 neurokit2>=0.2.7            # Pan-Tompkins R-peak detection
 PyWavelets>=1.5.0           # DWT feature extraction (ECGFeatureExtractor)
+wfdb>=4.1.2                 # MIT/PhysioBank WFDB read for waveform upload
 
-# Deep learning (optional — server runs in fallback mode without it)
-# torch>=2.1.0              # Uncomment to enable CNN-BiLSTM inference
+# Deep learning — CNN-BiLSTM inference (NumPy fallback only if torch missing)
+torch>=2.1.0
 
 # Explainability (optional — requires torch)
 # captum>=0.7.0             # Grad-CAM via LayerGradCam

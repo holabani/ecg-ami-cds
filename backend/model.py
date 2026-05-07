@@ -21,6 +21,8 @@ Gracefully falls back to NumPy-only inference when PyTorch is absent.
 import numpy as np
 from typing import Tuple
 
+from checkpoint_utils import iter_checkpoint_paths
+
 try:
     import torch
     import torch.nn as nn
@@ -229,34 +231,43 @@ if TORCH_AVAILABLE:
 
     def _get_model() -> CardioSenseModel:
         """
-        Return CardioSenseModel. Loads trained weights if a checkpoint exists
-        at ./checkpoints/best_model_fold1.pt (produced by train.py), otherwise
-        uses random (untrained) weights for demo.
+        Return CardioSenseModel. Loads pretrained weights from (in order):
+        bundled files under backend/checkpoints/, optional download via
+        CARDIOSENSE_CHECKPOINT_URL, or legacy ./checkpoints/*.pt next to CWD.
+        If none load successfully, uses random (untrained) weights for demo.
         """
         global _model
         if _model is None:
-            import os
             torch.manual_seed(42)
             _model = CardioSenseModel()
 
-            # Try to load trained checkpoint
-            ckpt_candidates = [
-                "checkpoints/best_model_fold1.pt",
-                "checkpoints/best_model.pt",
-            ]
-            for ckpt_path in ckpt_candidates:
-                if os.path.exists(ckpt_path):
+            loaded = False
+            for ckpt_path in iter_checkpoint_paths():
+                try:
                     try:
-                        ckpt = torch.load(ckpt_path, map_location='cpu')
-                        _model.load_state_dict(ckpt["model_state_dict"])
-                        print(
-                            f"[CardioSense] Loaded trained weights from {ckpt_path} "
-                            f"(val AMI AUC: {ckpt.get('val_ami_auc', 'N/A')})"
+                        ckpt = torch.load(
+                            ckpt_path, map_location="cpu", weights_only=False
                         )
-                        break
-                    except Exception as e:
-                        print(f"[CardioSense] Warning: could not load checkpoint {ckpt_path}: {e}")
-            else:
+                    except TypeError:
+                        ckpt = torch.load(ckpt_path, map_location="cpu")
+                    if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+                        state = ckpt["model_state_dict"]
+                        meta_auc = ckpt.get("val_ami_auc", "N/A")
+                    elif isinstance(ckpt, dict):
+                        state = ckpt
+                        meta_auc = "N/A"
+                    else:
+                        continue
+                    _model.load_state_dict(state)
+                    print(
+                        f"[CardioSense] Loaded trained weights from {ckpt_path} "
+                        f"(val AMI AUC: {meta_auc})"
+                    )
+                    loaded = True
+                    break
+                except Exception as e:
+                    print(f"[CardioSense] Warning: could not load checkpoint {ckpt_path}: {e}")
+            if not loaded:
                 print("[CardioSense] No trained checkpoint found — using random weights (demo mode)")
 
             _model.eval()

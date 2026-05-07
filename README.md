@@ -17,7 +17,7 @@ docker-compose up --build
 
 | Service | URL | Notes |
 |--------|-----|-------|
-| Frontend | http://localhost:3000 | App UI |
+| Frontend | http://localhost:3000 | App UI (use `npm run dev -- -p 3001` if port 3000 is in use, e.g. Homebrew Grafana) |
 | Backend API | http://localhost:8000 | Swagger: `/docs` |
 | Prometheus | http://localhost:9090 | Scrapes **`backend:8000/metrics`** on the Compose network |
 | Grafana | http://localhost:3010 | Login **`admin` / `admin`** — Prometheus data source & **CardioSense — Overview** dashboard are auto-provisioned |

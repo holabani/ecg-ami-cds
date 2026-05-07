@@ -34,6 +34,8 @@ from metrics import (
     PREDICT_REQUESTS,
     PREDICT_CRITICAL_ALERTS,
     PREDICT_LATENCY,
+    observe_ami_outcome,
+    attach_http_metrics_middleware,
     get_metrics,
 )
 from schemas import (
@@ -87,6 +89,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+attach_http_metrics_middleware(app)
 
 
 # ──────────────────────────────────────────────
@@ -159,6 +162,8 @@ async def predict_endpoint(req: PredictRequest):
     critical_alert = alert is not None
     if critical_alert:
         PREDICT_CRITICAL_ALERTS.inc()
+
+    observe_ami_outcome(ami_prob)
 
     # ── Store in history ─────────────────────────────────────────────
     _prediction_history.append({

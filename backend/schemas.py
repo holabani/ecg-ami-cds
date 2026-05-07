@@ -1,7 +1,22 @@
 """Pydantic schemas for CardioSense API request and response models."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from typing import Literal, Optional
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=4)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 class PredictRequest(BaseModel):

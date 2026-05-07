@@ -4,8 +4,41 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE,
-  headers: { 'Content-Type': 'application/json' },
 });
+
+api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('cardiosense_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (
+      typeof window !== 'undefined' &&
+      error?.response?.status === 401 &&
+      !window.location.pathname.startsWith('/login')
+    ) {
+      localStorage.removeItem('cardiosense_token');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+export function logoutClient(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('cardiosense_token');
+  window.location.href = '/login';
+}
 
 // ────────────────────────────────────────────
 // Request types
@@ -23,9 +56,10 @@ export interface PredictRequest {
   ami_ground_truth?: boolean | null;
 }
 
-// ────────────────────────────────────────────
-// Response types
-// ────────────────────────────────────────────
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
 
 export interface PredictResponse {
   patient_id: string;
@@ -99,7 +133,7 @@ export const predict = (data: PredictRequest) =>
 
 /** Multipart: FormData keys — patient_id, sampling_rate (string), ami_ground_truth?, csv_file?, wfdb_header?, wfdb_signal? */
 export const predictUpload = (formData: FormData) =>
-  axios.post<PredictResponse>(`${API_BASE}/predict/upload`, formData);
+  api.post<PredictResponse>('/predict/upload', formData);
 
 export const getHistory = () =>
   api.get<{ predictions: HistoryItem[]; total: number }>('/history');
@@ -111,6 +145,12 @@ export const getHealth = () => api.get('/health');
 
 export const getExplain = (patientId: string) =>
   api.get<ExplainResponse>(`/explain/${patientId}`);
+
+export const login = (email: string, password: string) =>
+  api.post<TokenResponse>('/auth/login', { email, password });
+
+export const register = (email: string, password: string) =>
+  api.post<TokenResponse>('/auth/register', { email, password });
 
 // ────────────────────────────────────────────
 // Helpers

@@ -14,6 +14,7 @@ import {
   Cell,
 } from 'recharts';
 import { getExplain, riskColour, type ExplainResponse } from '@/lib/api';
+import LogoutButton from '@/components/LogoutButton';
 
 // ── Nav ──────────────────────────────────────────────────────────────────────
 
@@ -25,12 +26,15 @@ function Nav() {
           <Link href="/" className="text-2xl font-black tracking-tight text-red-500">CardioSense</Link>
           <span className="hidden rounded bg-red-500/20 px-2 py-0.5 text-xs text-red-400 sm:inline">AI ECG CDS</span>
         </div>
-        <div className="flex gap-6">
-          {[['/', 'Predict'], ['/history', 'History'], ['/alerts', 'Alerts']].map(([href, label]) => (
-            <Link key={href} href={href} className="text-gray-400 hover:text-white transition-colors">
-              {label}
-            </Link>
-          ))}
+        <div className="flex items-center gap-6">
+          <div className="flex gap-6">
+            {[['/', 'Predict'], ['/history', 'History'], ['/alerts', 'Alerts']].map(([href, label]) => (
+              <Link key={href} href={href} className="text-gray-400 hover:text-white transition-colors">
+                {label}
+              </Link>
+            ))}
+          </div>
+          <LogoutButton />
         </div>
       </div>
     </nav>

@@ -22,6 +22,7 @@ import {
   riskLabel,
   type PredictResponse,
 } from '@/lib/api';
+import LogoutButton from '@/components/LogoutButton';
 
 type WaveformSource = 'synthetic' | 'csv' | 'wfdb';
 
@@ -42,20 +43,23 @@ function Nav({ active }: { active: string }) {
             AI ECG CDS
           </span>
         </div>
-        <div className="flex gap-6">
-          {links.map(({ href, label }) => (
-            <Link
-              key={href}
-              href={href}
-              className={
-                active === label
-                  ? 'font-semibold text-red-400 underline underline-offset-4'
-                  : 'text-gray-400 hover:text-white transition-colors'
-              }
-            >
-              {label}
-            </Link>
-          ))}
+        <div className="flex items-center gap-4">
+          <div className="flex gap-6">
+            {links.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                className={
+                  active === label
+                    ? 'font-semibold text-red-400 underline underline-offset-4'
+                    : 'text-gray-400 hover:text-white transition-colors'
+                }
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+          <LogoutButton />
         </div>
       </div>
     </nav>

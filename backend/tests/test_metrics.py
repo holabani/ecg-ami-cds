@@ -17,13 +17,14 @@ def test_http_middleware_records_request(api_client):
     assert "/health" in txt or 'path="' in txt
 
 
-def test_predict_increments_ami_counters(api_client):
+def test_predict_increments_ami_counters(api_client, auth_headers):
     api_client.post(
         "/predict",
         json={
             "patient_id": "metrics_pt",
             "ecg_data": [[0.0] * 1000 for _ in range(12)],
         },
+        headers=auth_headers,
     )
     txt = api_client.get("/metrics").text
     assert "ecg_ami_binary_predictions_total" in txt

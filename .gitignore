@@ -39,6 +39,11 @@ node_modules/
 frontend/.next/
 .next/
 
+# SQLite (auth + prediction history — FYP demo DB)
+backend/cardiosense.db
+backend/_cardiosense_test.sqlite
+backend/tests/_cardiosense_test.sqlite
+
 # Environment files
 .env
 .env.local

@@ -16,9 +16,11 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
 
 from preprocessing import ECGPreprocessor, SCIPY_AVAILABLE
 from ecg_io import parse_ecg_csv, load_wfdb_pair
@@ -31,6 +33,25 @@ from explainability import (
     classify_urgency,
 )
 from alerts_service import alerts_service
+from auth_util import (
+    create_access_token,
+    DEMO_EMAIL,
+    DEMO_PASSWORD,
+    hash_password,
+    parse_user_id_from_token,
+    verify_password,
+)
+from crud import (
+    create_user,
+    get_user_by_email,
+    get_user_by_id,
+    latest_prediction_for_patient,
+    list_predictions_for_user,
+    prediction_row_to_history_dict,
+    save_prediction,
+)
+from database import get_db
+from models import User
 from metrics import (
     PREDICT_REQUESTS,
     PREDICT_CRITICAL_ALERTS,
@@ -48,6 +69,9 @@ from schemas import (
     AlertsResponse,
     AlertItem,
     ExplainResponse,
+    RegisterRequest,
+    LoginRequest,
+    TokenResponse,
 )
 
 logging.basicConfig(
@@ -56,13 +80,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# In-memory prediction history (newest appended last)
-_prediction_history: list[dict] = []
-
 # Module-level singletons
 _preprocessor = ECGPreprocessor(fs=500)
 _extractor = ECGFeatureExtractor()
 _gradcam = ECGGradCAM()  # Captum unavailable → clinical fallback used
+
+
+bearer_scheme = HTTPBearer()
+
+
+def init_database():
+    """Create SQLite tables; import models so metadata is populated."""
+    import models  # noqa: F401
+    from database import Base, engine
+
+    Base.metadata.create_all(bind=engine)
+
+
+def ensure_demo_login():
+    from database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        if get_user_by_email(db, DEMO_EMAIL) is None:
+            create_user(db, DEMO_EMAIL, hash_password(DEMO_PASSWORD))
+            logger.info(
+                "Demo account created — email=%s password=%s (change in production)",
+                DEMO_EMAIL,
+                DEMO_PASSWORD,
+            )
+    finally:
+        db.close()
 
 
 @asynccontextmanager
@@ -70,6 +118,8 @@ async def lifespan(app: FastAPI):
     logger.info("CardioSense backend starting up...")
     logger.info(f"  PyTorch: {'available' if TORCH_AVAILABLE else 'NOT available (fallback)'}")
     logger.info(f"  SciPy:   {'available' if SCIPY_AVAILABLE else 'NOT available (fallback)'}")
+    init_database()
+    ensure_demo_login()
     yield
     logger.info("CardioSense backend shutting down.")
 
@@ -94,12 +144,47 @@ app.add_middleware(
 attach_http_metrics_middleware(app)
 
 
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    uid = parse_user_id_from_token(credentials.credentials)
+    if uid is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user = get_user_by_id(db, uid)
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+
+@app.post("/auth/register", response_model=TokenResponse)
+async def auth_register(body: RegisterRequest, db: Session = Depends(get_db)):
+    if get_user_by_email(db, str(body.email)):
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = create_user(db, str(body.email), hash_password(body.password))
+    token = create_access_token(user_id=user.id, email=user.email)
+    return TokenResponse(access_token=token)
+
+
+@app.post("/auth/login", response_model=TokenResponse)
+async def auth_login(body: LoginRequest, db: Session = Depends(get_db)):
+    user = get_user_by_email(db, str(body.email))
+    if user is None or not verify_password(body.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    token = create_access_token(user_id=user.id, email=user.email)
+    return TokenResponse(access_token=token)
+
+
 # ──────────────────────────────────────────────
 # Predict endpoint — full CardioSense pipeline
 # ──────────────────────────────────────────────
 
 @app.post("/predict", response_model=PredictResponse)
-async def predict_endpoint(req: PredictRequest):
+async def predict_endpoint(
+    req: PredictRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     Run the full CardioSense pipeline on a 12-lead ECG recording (JSON body).
 
@@ -108,6 +193,8 @@ async def predict_endpoint(req: PredictRequest):
 
     ecg_raw = _parse_ecg_data(req.ecg_data)
     return _run_predict_core(
+        db,
+        current_user.id,
         ecg_raw,
         req.patient_id,
         req.sampling_rate,
@@ -132,6 +219,8 @@ async def predict_upload(
     csv_file: UploadFile | None = File(None),
     wfdb_header: UploadFile | None = File(None, description=".hea WFDB header file"),
     wfdb_signal: UploadFile | None = File(None, description=".dat WFDB signal file"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Run the pipeline on an uploaded waveform.
@@ -188,7 +277,7 @@ async def predict_upload(
 
             raise HTTPException(status_code=422, detail=str(e))
 
-    return _run_predict_core(ecg_raw, patient_id, sampling_rate, ami_gt)
+    return _run_predict_core(db, current_user.id, ecg_raw, patient_id, sampling_rate, ami_gt)
 
 
 # ──────────────────────────────────────────────
@@ -196,8 +285,13 @@ async def predict_upload(
 # ──────────────────────────────────────────────
 
 @app.get("/history", response_model=HistoryResponse)
-async def history_endpoint():
-    """Return prediction history (newest first)."""
+async def history_endpoint(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return this user's prediction history (newest first)."""
+    rows = list_predictions_for_user(db, current_user.id)
+    dicts = [prediction_row_to_history_dict(r) for r in rows]
     items = [
         HistoryItem(
             patient_id=h["patient_id"],
@@ -208,7 +302,7 @@ async def history_endpoint():
             timestamp=h["timestamp"],
             critical_alert=h["critical_alert"],
         )
-        for h in reversed(_prediction_history)
+        for h in reversed(dicts)
     ]
     return HistoryResponse(predictions=items, total=len(items))
 
@@ -232,7 +326,11 @@ async def alerts_endpoint():
 # ──────────────────────────────────────────────
 
 @app.get("/explain/{patient_id}", response_model=ExplainResponse)
-async def explain_endpoint(patient_id: str):
+async def explain_endpoint(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     Return the detailed XAI breakdown for a patient's latest prediction.
 
@@ -241,20 +339,19 @@ async def explain_endpoint(patient_id: str):
     - Grad-CAM lead-level saliency (which of the 12 leads drove the prediction)
     - Clinical natural-language explanation
     """
-    matches = [h for h in _prediction_history if h["patient_id"] == patient_id]
-    if not matches:
+    latest = latest_prediction_for_patient(db, current_user.id, patient_id)
+    if latest is None:
         raise HTTPException(
             status_code=404,
             detail=f"No prediction found for patient '{patient_id}'. Run /predict first.",
         )
 
-    latest = matches[-1]
-    ami_prob = latest["ami_probability"]
-    ami_label = latest.get("ami_label", "Unknown")
-    revasc_prob = latest["revascularization_probability"]
-    urgency = latest.get("revascularization_urgency", "Unknown")
-    shap = latest.get("shap_features", {})
-    gradcam = latest.get("gradcam_lead_importance", {})
+    ami_prob = latest.ami_probability
+    ami_label = latest.ami_label
+    revasc_prob = latest.revascularization_probability
+    urgency = latest.revascularization_urgency
+    shap = latest.shap_dict()
+    gradcam = latest.gradcam_dict()
 
     # Generate clinical natural-language explanation
     explanation = _build_explanation(ami_label, ami_prob, revasc_prob, urgency, shap, gradcam)
@@ -315,6 +412,8 @@ def _parse_optional_ami_ground_truth_form(raw: str) -> bool | None:
 
 
 def _run_predict_core(
+    db: Session,
+    user_id: int,
     ecg_raw: np.ndarray,
     patient_id: str,
     sampling_rate: int,
@@ -378,19 +477,22 @@ def _run_predict_core(
     if ami_ground_truth is not None:
         ami_evaluation = record_ami_ground_truth_confusion(ami_prob, ami_ground_truth)
 
-    _prediction_history.append({
-        "patient_id": patient_id,
-        "ami_probability": ami_prob,
-        "ami_label": ami_label,
-        "revascularization_probability": revasc_prob,
-        "revascularization_urgency": urgency,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "critical_alert": critical_alert,
-        "shap_features": shap_vals,
-        "gradcam_lead_importance": lead_importance,
-        "ami_ground_truth": ami_ground_truth,
-        "ami_evaluation_vs_ground_truth": ami_evaluation,
-    })
+    ts = datetime.utcnow().isoformat() + "Z"
+    save_prediction(
+        db,
+        user_id=user_id,
+        patient_id=patient_id,
+        ami_probability=ami_prob,
+        ami_label=ami_label,
+        revascularization_probability=revasc_prob,
+        revascularization_urgency=urgency,
+        timestamp=ts,
+        critical_alert=critical_alert,
+        shap_features=shap_vals,
+        gradcam_lead_importance=lead_importance,
+        ami_ground_truth=ami_ground_truth,
+        ami_evaluation_vs_ground_truth=ami_evaluation,
+    )
 
     logger.info(
         "Predict | patient=%s | AMI=%.3f (%s) | Revasc=%.3f (%s) | alert=%s | mode=%s",

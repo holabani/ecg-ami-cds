@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { getAlerts } from '@/lib/api';
 import type { AlertItem } from '@/lib/api';
+import LogoutButton from '@/components/LogoutButton';
 
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
@@ -33,16 +34,19 @@ export default function AlertsPage() {
       <nav className="border-b border-gray-800 bg-black/30 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
           <h1 className="text-xl font-bold text-red-500">ECG AMI CDS</h1>
-          <div className="flex gap-6">
-            <Link href="/" className="text-gray-400 hover:text-white">
-              Predict
-            </Link>
-            <Link href="/history" className="text-gray-400 hover:text-white">
-              History
-            </Link>
-            <Link href="/alerts" className="text-red-400 underline">
-              Alerts
-            </Link>
+          <div className="flex items-center gap-6">
+            <div className="flex gap-6">
+              <Link href="/" className="text-gray-400 hover:text-white">
+                Predict
+              </Link>
+              <Link href="/history" className="text-gray-400 hover:text-white">
+                History
+              </Link>
+              <Link href="/alerts" className="text-red-400 underline">
+                Alerts
+              </Link>
+            </div>
+            <LogoutButton />
           </div>
         </div>
       </nav>

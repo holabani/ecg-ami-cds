@@ -5,8 +5,9 @@ Full-stack AI-powered Clinical Decision Support System with **no cloud dependenc
 ## Architecture
 
 - **Frontend**: Next.js (App Router), TypeScript, Tailwind CSS, Recharts, Axios
-- **Backend**: FastAPI, PyTorch (dummy model), SHAP placeholder, Prometheus metrics
+- **Backend**: FastAPI, PyTorch (checkpoint inference), Prometheus metrics endpoint
 - **Alerts**: Local mock implementation (in-memory + console logging) — no AWS SNS
+- **Observability**: Prometheus (`/metrics`) + Grafana dashboards (included in Compose)
 
 ## Quick Start
 
@@ -14,9 +15,14 @@ Full-stack AI-powered Clinical Decision Support System with **no cloud dependenc
 docker-compose up --build
 ```
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
+| Service | URL | Notes |
+|--------|-----|-------|
+| Frontend | http://localhost:3000 | App UI |
+| Backend API | http://localhost:8000 | Swagger: `/docs` |
+| Prometheus | http://localhost:9090 | Scrapes **`backend:8000/metrics`** on the Compose network |
+| Grafana | http://localhost:3010 | Login **`admin` / `admin`** — Prometheus data source & **CardioSense — Overview** dashboard are auto-provisioned |
+
+For demos: open Grafana, confirm Prometheus **Status → Targets** is up, generate traffic from the Predict page; panels update after scraping.
 
 ## API Endpoints
 
@@ -50,9 +56,10 @@ ecg-ami-cds/
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/
-│   │   ├── app/            # Next.js App Router pages
-│   │   └── lib/api.ts      # Axios API client
 │   └── Dockerfile
+├── deploy/
+│   ├── prometheus/prometheus.yml   # targets `backend:8000` under Compose
+│   └── grafana/                    # datasources + CardioSense overview dashboard
 ├── docker-compose.yml
 └── README.md
 ```

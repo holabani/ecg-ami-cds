@@ -16,6 +16,11 @@ export interface PredictRequest {
   /** 12 leads × T samples (2D array recommended) or flat 12×T list */
   ecg_data: number[][] | number[];
   sampling_rate?: number;
+  /**
+   * Optional reference AMI label (from discharge Dx or expert read) for retrospective
+   * monitoring. When set, Prometheus records tp/tn/fp/fn vs model threshold 0.5.
+   */
+  ami_ground_truth?: boolean | null;
 }
 
 // ────────────────────────────────────────────
@@ -47,6 +52,9 @@ export interface PredictResponse {
   // Pipeline metadata
   inference_mode: string;
   preprocessing_applied: boolean;
+
+  /** Present only if ami_ground_truth was sent: tp | tn | fp | fn */
+  ami_evaluation_vs_ground_truth?: 'tp' | 'tn' | 'fp' | 'fn' | null;
 }
 
 export interface HistoryItem {

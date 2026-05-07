@@ -1,7 +1,7 @@
 """Pydantic schemas for CardioSense API request and response models."""
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 
 
 class PredictRequest(BaseModel):
@@ -26,6 +26,15 @@ class PredictRequest(BaseModel):
     sampling_rate: int = Field(
         500,
         description="ECG sampling frequency in Hz. 500 Hz for clinical recordings, 100 Hz for PTB-XL.",
+    )
+    ami_ground_truth: Optional[bool] = Field(
+        None,
+        description=(
+            "Optional reference label for retrospective monitoring only. "
+            "true = AMI present (e.g. angiographer-confirmed MI), false = no AMI. "
+            "When set, Prometheus updates confusion counters (tp/tn/fp/fn) using the "
+            "same threshold as ami_probability ≥ 0.5 for predicted positive."
+        ),
     )
 
 
@@ -80,6 +89,17 @@ class PredictResponse(BaseModel):
     )
     preprocessing_applied: bool = Field(
         ..., description="True if SciPy bandpass/notch filtering was applied"
+    )
+
+    # --- Ground-truth evaluation (only when ami_ground_truth was sent on request)
+    ami_evaluation_vs_ground_truth: Optional[
+        Literal["tp", "tn", "fp", "fn"]
+    ] = Field(
+        None,
+        description=(
+            "If request included ami_ground_truth: confusion cell vs AMI_BINARY_THRESHOLD — "
+            "tp=true positive, tn=true negative, fp=false positive, fn=false negative"
+        ),
     )
 
 

@@ -35,6 +35,7 @@ from metrics import (
     PREDICT_CRITICAL_ALERTS,
     PREDICT_LATENCY,
     observe_ami_outcome,
+    record_ami_ground_truth_confusion,
     attach_http_metrics_middleware,
     get_metrics,
 )
@@ -165,6 +166,10 @@ async def predict_endpoint(req: PredictRequest):
 
     observe_ami_outcome(ami_prob)
 
+    ami_evaluation: str | None = None
+    if req.ami_ground_truth is not None:
+        ami_evaluation = record_ami_ground_truth_confusion(ami_prob, req.ami_ground_truth)
+
     # ── Store in history ─────────────────────────────────────────────
     _prediction_history.append({
         "patient_id": req.patient_id,
@@ -176,6 +181,8 @@ async def predict_endpoint(req: PredictRequest):
         "critical_alert": critical_alert,
         "shap_features": shap_vals,
         "gradcam_lead_importance": lead_importance,
+        "ami_ground_truth": req.ami_ground_truth,
+        "ami_evaluation_vs_ground_truth": ami_evaluation,
     })
 
     logger.info(
@@ -196,6 +203,7 @@ async def predict_endpoint(req: PredictRequest):
         gradcam_lead_importance=lead_importance,
         inference_mode=inference_mode,
         preprocessing_applied=preprocessing_applied,
+        ami_evaluation_vs_ground_truth=ami_evaluation,
     )
 
 

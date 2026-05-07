@@ -1,5 +1,8 @@
 # CardioSense — Prometheus scrape configuration
 #
+# Key metrics exposed by POST /predict + HTTP middleware include:
+#   ecg_ami_confusion_vs_ground_truth_total{outcome="tp|tn|fp|fn"}  — when ami_ground_truth is sent
+#
 # Usage (local Docker Compose):
 #   1. Add a Prometheus service mounting this file (example below).
 #   2. Set `targets` host to the backend service name & port exposed on the Compose network,

@@ -12,6 +12,7 @@ Risk tiers mirror common CDS cutoffs for dashboards (modifiable for your study).
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -54,6 +55,20 @@ AMI_RISK_TIER = Counter(
     "ecg_ami_risk_prediction_total",
     "AMI predictions bucketed into risk tiers for monitoring drift",
     ("tier",),
+)
+
+# ─── Ground-truth confusion (when client sends ami_ground_truth on /predict) ─
+
+AMI_PREDICTS_WITH_GROUND_TRUTH = Counter(
+    "ecg_predict_with_ami_ground_truth_total",
+    "Predict calls that included ami_ground_truth for confusion-matrix monitoring",
+)
+
+AMI_CONFUSION_VS_GROUND_TRUTH = Counter(
+    "ecg_ami_confusion_vs_ground_truth_total",
+    "Confusion-matrix cells: predicted AMI (≥AMI_BINARY_THRESHOLD) vs reference label "
+    '("tp"|"tn"|"fp"|"fn")',
+    ("outcome",),
 )
 
 # ─── All HTTP routes (Starlette middleware) ─────────────────────────────────
@@ -146,6 +161,36 @@ def observe_ami_outcome(ami_probability: float) -> None:
         AMI_RISK_TIER.labels(tier="moderate").inc()
     else:
         AMI_RISK_TIER.labels(tier="low").inc()
+
+
+def evaluate_ami_vs_ground_truth(
+    ami_probability: float,
+    ground_truth_ami_positive: bool,
+) -> Literal["tp", "tn", "fp", "fn"]:
+    """
+    Binary AMI prediction vs reference label using ``AMI_BINARY_THRESHOLD``.
+
+    Predicted positive ⟺ ami_probability ≥ AMI_BINARY_THRESHOLD.
+    """
+    pred_positive = float(ami_probability) >= AMI_BINARY_THRESHOLD
+    if pred_positive and ground_truth_ami_positive:
+        return "tp"
+    if not pred_positive and not ground_truth_ami_positive:
+        return "tn"
+    if pred_positive:
+        return "fp"
+    return "fn"
+
+
+def record_ami_ground_truth_confusion(
+    ami_probability: float,
+    ground_truth_ami_positive: bool,
+) -> Literal["tp", "tn", "fp", "fn"]:
+    """Increment ground-truth evaluation counters; return confusion cell."""
+    AMI_PREDICTS_WITH_GROUND_TRUTH.inc()
+    outcome = evaluate_ami_vs_ground_truth(ami_probability, ground_truth_ami_positive)
+    AMI_CONFUSION_VS_GROUND_TRUTH.labels(outcome=outcome).inc()
+    return outcome
 
 
 def get_metrics() -> tuple[bytes, str]:

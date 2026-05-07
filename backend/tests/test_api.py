@@ -146,3 +146,28 @@ class TestExplain:
         api_client.post("/predict", json={"patient_id": "explain-narr", "ecg_data": ecg})
         data = api_client.get("/explain/explain-narr").json()
         assert "explanation" in data or "narrative" in data or "summary" in data
+
+
+class TestPredictUploadCSV:
+    def test_csv_multipart_returns_200(self, api_client):
+        rng = np.random.default_rng(42)
+        sig = rng.normal(size=(220, 12))
+        csv_body = '\n'.join(','.join(f'{x:.5f}' for x in row) for row in sig)
+        resp = api_client.post(
+            '/predict/upload',
+            data={'patient_id': 'csv-up', 'sampling_rate': '100'},
+            files={'csv_file': ('recording.csv', csv_body.encode('utf-8'), 'text/csv')},
+        )
+
+        assert resp.status_code == 200, resp.text
+
+        js = resp.json()
+
+        assert 'ami_probability' in js
+
+        assert js['patient_id'] == 'csv-up'
+
+    def test_no_file_returns_422(self, api_client):
+        resp = api_client.post('/predict/upload', data={'patient_id': 'x', 'sampling_rate': '500'})
+        assert resp.status_code == 422
+

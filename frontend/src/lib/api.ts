@@ -97,6 +97,10 @@ export interface ExplainResponse {
 export const predict = (data: PredictRequest) =>
   api.post<PredictResponse>('/predict', data);
 
+/** Multipart: FormData keys — patient_id, sampling_rate (string), ami_ground_truth?, csv_file?, wfdb_header?, wfdb_signal? */
+export const predictUpload = (formData: FormData) =>
+  axios.post<PredictResponse>(`${API_BASE}/predict/upload`, formData);
+
 export const getHistory = () =>
   api.get<{ predictions: HistoryItem[]; total: number }>('/history');
 

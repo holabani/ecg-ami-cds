@@ -16,11 +16,12 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from preprocessing import ECGPreprocessor, SCIPY_AVAILABLE
+from ecg_io import parse_ecg_csv, load_wfdb_pair
 from features import ECGFeatureExtractor
 from model import predict_with_internals, TORCH_AVAILABLE
 from explainability import (
@@ -100,111 +101,94 @@ attach_http_metrics_middleware(app)
 @app.post("/predict", response_model=PredictResponse)
 async def predict_endpoint(req: PredictRequest):
     """
-    Run the full CardioSense pipeline on a 12-lead ECG recording.
+    Run the full CardioSense pipeline on a 12-lead ECG recording (JSON body).
 
-    Accepts ecg_data as:
-    - list[list[float]] — 12 leads × T samples (recommended)
-    - list[float]       — flat 12×T values
-
-    Returns AMI probability, AMI label (STEMI/NSTEMI/Normal/Inconclusive),
-    revascularization probability and urgency, SHAP feature attributions,
-    and Grad-CAM lead saliency scores.
+    Accepts ecg_data as list[list[float]] (12 × T), or flat list 12×T.
     """
-    PREDICT_REQUESTS.inc()
 
-    with PREDICT_LATENCY.time():
-        # ── Stage 1: Parse ECG input ──────────────────────────────────
-        ecg_raw = _parse_ecg_data(req.ecg_data)
-        _preprocessor.fs = req.sampling_rate  # Honour declared sampling rate
+    ecg_raw = _parse_ecg_data(req.ecg_data)
+    return _run_predict_core(
+        ecg_raw,
+        req.patient_id,
+        req.sampling_rate,
+        req.ami_ground_truth,
+    )
 
-        # ── Stage 2: Preprocessing ────────────────────────────────────
+
+@app.post("/predict/upload", response_model=PredictResponse)
+async def predict_upload(
+    patient_id: str = Form(..., description="Patient identifier"),
+    sampling_rate: int = Form(
+        500,
+        ge=60,
+        le=2000,
+        description="ECG sampling frequency in Hz (100 for PTB-XL low-res WFDB)",
+    ),
+    ami_ground_truth_str: str = Form(
+        '',
+        alias='ami_ground_truth',
+        description='Optional: true|false for confusion metrics.',
+    ),
+    csv_file: UploadFile | None = File(None),
+    wfdb_header: UploadFile | None = File(None, description=".hea WFDB header file"),
+    wfdb_signal: UploadFile | None = File(None, description=".dat WFDB signal file"),
+):
+    """
+    Run the pipeline on an uploaded waveform.
+
+    Exactly **one** of:
+    - **CSV**: `csv_file` — rows = time samples, **12 comma-separated numeric columns**
+      (alternatively 12 rows × many columns — lead-major), **≥200 samples** per lead;
+    - **WFDB**: `wfdb_header` + `wfdb_signal` — matching basename (``record.hea``, ``record.dat``).
+    """
+    ami_gt = _parse_optional_ami_ground_truth_form(ami_ground_truth_str)
+
+    has_csv = csv_file is not None and csv_file.filename
+    has_wfdb = (
+        wfdb_header is not None
+        and wfdb_signal is not None
+        and wfdb_header.filename
+        and wfdb_signal.filename
+    )
+    modes = sum([bool(has_csv), bool(has_wfdb)])
+    if modes == 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either csv_file, or wfdb_header + wfdb_signal together.",
+        )
+    if modes != 1:
+        raise HTTPException(status_code=422, detail="Use CSV **or** WFDB pair — not both.")
+
+    if has_csv:
+        raw_bytes = await csv_file.read()
+        if not raw_bytes:
+            raise HTTPException(status_code=422, detail="CSV file empty.")
         try:
-            prep_result = _preprocessor.run(ecg_raw)
-            beat_template = prep_result["beat_template"]
-            preprocessing_applied = SCIPY_AVAILABLE
-        except Exception as e:
-            logger.warning(f"Preprocessing failed ({e}), using raw ECG")
-            beat_template = ecg_raw
-            preprocessing_applied = False
+            ecg_raw = parse_ecg_csv(raw_bytes)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
-        # ── Stage 3: Feature extraction ───────────────────────────────
+    else:
+
+        hn = wfdb_header.filename or ''
+        if not hn.lower().endswith('.hea'):
+            raise HTTPException(status_code=422, detail='WFDB header must be named like *.hea')
+        if not ((wfdb_signal.filename or '').lower().endswith('.dat')):
+
+            raise HTTPException(status_code=422, detail='WFDB signals must use a .dat companion file.')
+
+        hea_b = await wfdb_header.read()
+        dat_b = await wfdb_signal.read()
+
         try:
-            features = _extractor.extract_all(beat_template, fs=req.sampling_rate)
-        except Exception as e:
-            logger.warning(f"Feature extraction failed ({e})")
-            features = {}
 
-        # ── Stage 4: Model inference ──────────────────────────────────
-        result = predict_with_internals(ecg_raw.tolist())
-        ami_prob: float = result["ami_prob"]
-        revasc_prob: float = result["revasc_prob"]
-        spectrogram = result.get("spectrogram")
-        inference_mode = "cnn_bilstm" if TORCH_AVAILABLE else "fallback"
+            ecg_raw = load_wfdb_pair(hea_b, dat_b, hn)
 
-        # ── Stage 5: Explainability ───────────────────────────────────
-        # Grad-CAM: lead-level saliency from CNN spectrogram branch
-        cam = _gradcam.compute(spectrogram, ami_prob=ami_prob)
-        lead_importance = _gradcam.as_dict(cam)
+        except (ValueError, RuntimeError) as e:
 
-        # SHAP: signed feature attributions
-        shap_vals = compute_shap_features(features, ami_prob, revasc_prob)
+            raise HTTPException(status_code=422, detail=str(e))
 
-        # ── Clinical classification ───────────────────────────────────
-        ami_label = classify_ami(ami_prob, revasc_prob)
-        urgency = classify_urgency(revasc_prob)
-        confidence = float(abs(ami_prob - 0.5) * 2)  # 0 = borderline, 1 = certain
-
-    # ── Alerts ───────────────────────────────────────────────────────
-    alert = alerts_service.check_and_create_alert(
-        patient_id=req.patient_id,
-        ami_probability=ami_prob,
-        revasc_probability=revasc_prob,
-    )
-    critical_alert = alert is not None
-    if critical_alert:
-        PREDICT_CRITICAL_ALERTS.inc()
-
-    observe_ami_outcome(ami_prob)
-
-    ami_evaluation: str | None = None
-    if req.ami_ground_truth is not None:
-        ami_evaluation = record_ami_ground_truth_confusion(ami_prob, req.ami_ground_truth)
-
-    # ── Store in history ─────────────────────────────────────────────
-    _prediction_history.append({
-        "patient_id": req.patient_id,
-        "ami_probability": ami_prob,
-        "ami_label": ami_label,
-        "revascularization_probability": revasc_prob,
-        "revascularization_urgency": urgency,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "critical_alert": critical_alert,
-        "shap_features": shap_vals,
-        "gradcam_lead_importance": lead_importance,
-        "ami_ground_truth": req.ami_ground_truth,
-        "ami_evaluation_vs_ground_truth": ami_evaluation,
-    })
-
-    logger.info(
-        f"Predict | patient={req.patient_id} | AMI={ami_prob:.3f} ({ami_label}) | "
-        f"Revasc={revasc_prob:.3f} ({urgency}) | alert={critical_alert} | mode={inference_mode}"
-    )
-
-    return PredictResponse(
-        patient_id=req.patient_id,
-        ami_probability=round(ami_prob, 4),
-        ami_label=ami_label,
-        ami_confidence=round(confidence, 4),
-        revascularization_probability=round(revasc_prob, 4),
-        revascularization_urgency=urgency,
-        critical_alert=critical_alert,
-        alert_id=alert.id if alert else None,
-        shap_features=shap_vals,
-        gradcam_lead_importance=lead_importance,
-        inference_mode=inference_mode,
-        preprocessing_applied=preprocessing_applied,
-        ami_evaluation_vs_ground_truth=ami_evaluation,
-    )
+    return _run_predict_core(ecg_raw, patient_id, sampling_rate, ami_gt)
 
 
 # ──────────────────────────────────────────────
@@ -315,6 +299,127 @@ async def metrics_endpoint():
 # ──────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────
+
+def _parse_optional_ami_ground_truth_form(raw: str) -> bool | None:
+    if raw is None or str(raw).strip() == '':
+        return None
+    s = str(raw).strip().lower()
+    if s in {'true', '1', 'yes', 'on'}:
+        return True
+    if s in {'false', '0', 'no', 'off'}:
+        return False
+    raise HTTPException(
+        status_code=422,
+        detail=f"Invalid ami_ground_truth={raw!r}; use blank, true, or false.",
+    )
+
+
+def _run_predict_core(
+    ecg_raw: np.ndarray,
+    patient_id: str,
+    sampling_rate: int,
+    ami_ground_truth: bool | None,
+) -> PredictResponse:
+    """Shared inference path from (12,T) ndarray (JSON upload or multipart)."""
+
+    PREDICT_REQUESTS.inc()
+
+    with PREDICT_LATENCY.time():
+
+        _preprocessor.fs = sampling_rate
+
+        try:
+            prep_result = _preprocessor.run(ecg_raw)
+            beat_template = prep_result["beat_template"]
+            preprocessing_applied = SCIPY_AVAILABLE
+        except Exception as e:
+
+            logger.warning("Preprocessing failed (%s), using raw ECG", e)
+            beat_template = ecg_raw
+            preprocessing_applied = False
+
+        try:
+
+            features = _extractor.extract_all(beat_template, fs=sampling_rate)
+
+        except Exception as e:
+
+            logger.warning("Feature extraction failed (%s)", e)
+            features = {}
+
+        result = predict_with_internals(ecg_raw.tolist())
+
+        ami_prob: float = result["ami_prob"]
+        revasc_prob: float = result["revasc_prob"]
+        spectrogram = result.get("spectrogram")
+        inference_mode = "cnn_bilstm" if TORCH_AVAILABLE else "fallback"
+
+        cam = _gradcam.compute(spectrogram, ami_prob=ami_prob)
+        lead_importance = _gradcam.as_dict(cam)
+        shap_vals = compute_shap_features(features, ami_prob, revasc_prob)
+
+        ami_label = classify_ami(ami_prob, revasc_prob)
+        urgency = classify_urgency(revasc_prob)
+        confidence = float(abs(ami_prob - 0.5) * 2)
+
+    alert = alerts_service.check_and_create_alert(
+        patient_id=patient_id,
+        ami_probability=ami_prob,
+        revasc_probability=revasc_prob,
+    )
+    critical_alert = alert is not None
+    if critical_alert:
+
+        PREDICT_CRITICAL_ALERTS.inc()
+
+    observe_ami_outcome(ami_prob)
+
+    ami_evaluation: str | None = None
+    if ami_ground_truth is not None:
+        ami_evaluation = record_ami_ground_truth_confusion(ami_prob, ami_ground_truth)
+
+    _prediction_history.append({
+        "patient_id": patient_id,
+        "ami_probability": ami_prob,
+        "ami_label": ami_label,
+        "revascularization_probability": revasc_prob,
+        "revascularization_urgency": urgency,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "critical_alert": critical_alert,
+        "shap_features": shap_vals,
+        "gradcam_lead_importance": lead_importance,
+        "ami_ground_truth": ami_ground_truth,
+        "ami_evaluation_vs_ground_truth": ami_evaluation,
+    })
+
+    logger.info(
+        "Predict | patient=%s | AMI=%.3f (%s) | Revasc=%.3f (%s) | alert=%s | mode=%s",
+        patient_id,
+        ami_prob,
+        ami_label,
+        revasc_prob,
+        urgency,
+        critical_alert,
+        inference_mode,
+
+    )
+
+    return PredictResponse(
+        patient_id=patient_id,
+        ami_probability=round(ami_prob, 4),
+        ami_label=ami_label,
+        ami_confidence=round(confidence, 4),
+        revascularization_probability=round(revasc_prob, 4),
+        revascularization_urgency=urgency,
+        critical_alert=critical_alert,
+        alert_id=alert.id if alert else None,
+        shap_features=shap_vals,
+        gradcam_lead_importance=lead_importance,
+        inference_mode=inference_mode,
+        preprocessing_applied=preprocessing_applied,
+        ami_evaluation_vs_ground_truth=ami_evaluation,
+    )
+
 
 def _parse_ecg_data(ecg_data: list) -> np.ndarray:
     """

@@ -10,7 +10,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 
 DEMO_EMAIL = "demo@example.com"
-DEMO_PASSWORD = "demo123"
+DEMO_PASSWORD = "Demo#12345"
 
 
 def secret_key() -> str:

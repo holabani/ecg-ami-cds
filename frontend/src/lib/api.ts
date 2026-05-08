@@ -159,19 +159,23 @@ export const register = (email: string, password: string) =>
 /** Generate a synthetic 12-lead ECG (12 leads × 1000 samples). */
 export function generateSyntheticECG(seed: number = 42): number[][] {
   const leads: number[][] = [];
-  const baseFreqs = [1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2];
   const rng = mulberry32(seed);
+  /** Heart-rate–like rate + per-lead morphology so the model does not see 12 identical traces. */
+  const rate = 1.0 + ((seed % 97) / 97) * 0.45;
 
   for (let lead = 0; lead < 12; lead++) {
     const samples: number[] = [];
-    const hr = baseFreqs[lead];
+    const hr = rate * (0.92 + 0.012 * lead + 0.03 * (rng() - 0.5));
+    const phase0 = (lead * 0.31 + (seed % 13) * 0.07 + rng() * 0.4) % (2 * Math.PI);
+    const qrsGain = 0.55 + 0.28 * Math.sin((lead + seed) * 0.7) + 0.12 * rng();
+    const tGain = 0.15 + 0.22 * ((lead + seed * 3) % 5) / 5;
+
     for (let t = 0; t < 1000; t++) {
-      const phase = (2 * Math.PI * hr * t) / 100;
-      // Simplified ECG-like waveform (P + QRS + T)
-      const p = 0.15 * Math.sin(phase - 0.5);
-      const qrs = 1.0 * Math.exp(-0.5 * ((Math.sin(phase) - 0.9) ** 2) / 0.01);
-      const t_wave = 0.3 * Math.sin(phase + 1.2);
-      const noise = 0.02 * (rng() - 0.5);
+      const phase = phase0 + (2 * Math.PI * hr * t) / 100;
+      const p = 0.12 * Math.sin(phase - 0.5);
+      const qrs = qrsGain * Math.exp(-0.5 * ((Math.sin(phase) - 0.9) ** 2) / 0.01);
+      const t_wave = tGain * Math.sin(phase + 1.2);
+      const noise = 0.035 * (rng() - 0.5);
       samples.push(p + qrs + t_wave + noise);
     }
     leads.push(samples);

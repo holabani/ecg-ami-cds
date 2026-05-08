@@ -1,12 +1,34 @@
 """Pydantic schemas for CardioSense API request and response models."""
 
-from pydantic import BaseModel, EmailStr, Field
+import re
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Literal, Optional
+
+
+def validate_password_policy(password: str) -> str:
+    """Registration: ≥8 chars, lowercase, uppercase, and one special character."""
+    if len(password) > 128:
+        raise ValueError('Password must be at most 128 characters.')
+    if len(password) < 8:
+        raise ValueError('Password must be at least 8 characters.')
+    if not re.search(r'[a-z]', password):
+        raise ValueError('Password must include a lowercase letter.')
+    if not re.search(r'[A-Z]', password):
+        raise ValueError('Password must include an uppercase letter.')
+    if not re.search(r'[^A-Za-z0-9]', password):
+        raise ValueError('Password must include at least one special character.')
+    return password
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=4)
+    password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator('password')
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        return validate_password_policy(v)
 
 
 class LoginRequest(BaseModel):

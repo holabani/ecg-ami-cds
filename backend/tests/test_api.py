@@ -16,6 +16,26 @@ import pytest
 
 # ── /health ───────────────────────────────────────────────────────────────────
 
+class TestAuthRegister:
+    def test_weak_password_returns_422(self, api_client):
+        r = api_client.post(
+            "/auth/register",
+            json={"email": "weakpw_user@example.com", "password": "noupper1!"},
+        )
+        assert r.status_code == 422
+
+    def test_valid_password_returns_token(self, api_client):
+        import uuid
+
+        email = f"reg_{uuid.uuid4().hex[:16]}@example.com"
+        r = api_client.post(
+            "/auth/register",
+            json={"email": email, "password": "Abcd#9999"},
+        )
+        assert r.status_code == 200
+        assert "access_token" in r.json()
+
+
 class TestHealth:
     def test_returns_200(self, api_client):
         resp = api_client.get("/health")

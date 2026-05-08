@@ -16,14 +16,34 @@ export default function LoginPage() {
     if (n && n.startsWith('/')) setNextPath(n);
   }, []);
   const [email, setEmail] = useState('demo@example.com');
-  const [password, setPassword] = useState('demo123');
+  const [password, setPassword] = useState('Demo#12345');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const passwordPolicyHint =
+    mode === 'register'
+      ? 'Use 8+ characters with uppercase, lowercase, and a special character (e.g. !@#).'
+      : null;
+
+  const validateRegisterPasswordClient = (): string | null => {
+    if (password.length < 8) return 'Password must be at least 8 characters.';
+    if (!/[a-z]/.test(password)) return 'Password must include a lowercase letter.';
+    if (!/[A-Z]/.test(password)) return 'Password must include an uppercase letter.';
+    if (!/[^A-Za-z0-9]/.test(password)) return 'Password must include a special character.';
+    return null;
+  };
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (mode === 'register') {
+      const clientErr = validateRegisterPasswordClient();
+      if (clientErr) {
+        setError(clientErr);
+        return;
+      }
+    }
     setLoading(true);
     try {
       const fn = mode === 'login' ? login : registerApi;
@@ -34,8 +54,12 @@ export default function LoginPage() {
     } catch (err: unknown) {
       let msg = 'Request failed';
       if (err && typeof err === 'object' && 'response' in err) {
-        const ax = err as { response?: { data?: { detail?: string } } };
-        if (typeof ax.response?.data?.detail === 'string') msg = ax.response.data.detail;
+        const ax = err as { response?: { data?: { detail?: string | unknown[] } } };
+        const d = ax.response?.data?.detail;
+        if (typeof d === 'string') msg = d;
+        else if (Array.isArray(d) && d[0] && typeof d[0] === 'object' && d[0] !== null && 'msg' in d[0]) {
+          msg = String((d[0] as { msg: string }).msg);
+        }
       }
       setError(msg);
     } finally {
@@ -83,12 +107,15 @@ export default function LoginPage() {
             <input
               type="password"
               required
-              minLength={4}
+              minLength={mode === 'register' ? 8 : 1}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-lg border border-gray-700 bg-black/60 px-3 py-2 text-white outline-none focus:border-red-500"
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             />
+            {passwordPolicyHint && (
+              <p className="mt-1 text-xs text-gray-500">{passwordPolicyHint}</p>
+            )}
           </div>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <button
@@ -102,7 +129,7 @@ export default function LoginPage() {
 
         <p className="mt-6 text-center text-xs text-gray-500">
           Demo login (auto-created): <strong className="text-gray-400">demo@example.com</strong> /{' '}
-          <strong className="text-gray-400">demo123</strong>
+          <strong className="text-gray-400">Demo#12345</strong>
         </p>
         <Link href="/" className="mt-4 block text-center text-sm text-gray-400 hover:text-white">
           ← Back to home (still need to sign in)

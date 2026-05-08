@@ -54,7 +54,7 @@ def auth_headers(api_client):
     """JWT for demo user (seeded on app startup)."""
     r = api_client.post(
         "/auth/login",
-        json={"email": "demo@example.com", "password": "demo123"},
+        json={"email": "demo@example.com", "password": "Demo#12345"},
     )
     assert r.status_code == 200, r.text
     token = r.json()["access_token"]

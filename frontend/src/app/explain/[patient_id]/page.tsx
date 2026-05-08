@@ -20,7 +20,7 @@ import LogoutButton from '@/components/LogoutButton';
 
 function Nav() {
   return (
-    <nav className="border-b border-gray-800 bg-black/30 backdrop-blur sticky top-0 z-10">
+    <nav className="sticky top-0 z-50 border-b border-gray-800 bg-black/30 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
         <div className="flex items-center gap-3">
           <Link href="/" className="text-2xl font-black tracking-tight text-red-500">CardioSense</Link>

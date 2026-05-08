@@ -28,7 +28,7 @@ api.interceptors.response.use(
       !window.location.pathname.startsWith('/login')
     ) {
       localStorage.removeItem('cardiosense_token');
-      window.location.href = '/login';
+      window.location.assign(`${window.location.origin}/login`);
     }
     return Promise.reject(error);
   }
@@ -36,8 +36,13 @@ api.interceptors.response.use(
 
 export function logoutClient(): void {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem('cardiosense_token');
-  window.location.href = '/login';
+  try {
+    localStorage.removeItem('cardiosense_token');
+  } finally {
+    // Full navigation — reliable with App Router + AuthGate (client router alone can stick on cached shells).
+    const base = window.location.origin;
+    window.location.assign(`${base}/login`);
+  }
 }
 
 // ────────────────────────────────────────────

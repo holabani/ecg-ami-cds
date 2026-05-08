@@ -19,6 +19,7 @@ def pytest_configure(config):
         except OSError:
             pass
     os.environ["CARDIOSENSE_DATABASE_URL"] = f"sqlite:///{p}"
+    os.environ["CARDIOSENSE_TEST_CAPTURE_OTP"] = "1"
 
 
 # ── ECG signal fixtures ────────────────────────────────────────────────────────

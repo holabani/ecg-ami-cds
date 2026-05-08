@@ -36,6 +36,24 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterPendingResponse(BaseModel):
+    detail: str
+    email: EmailStr
+
+
+class RegisterVerifyRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(..., min_length=6, max_length=6)
+
+    @field_validator('otp')
+    @classmethod
+    def otp_normalise(cls, v: str) -> str:
+        cleaned = v.strip().replace(' ', '')
+        if not cleaned.isdigit() or len(cleaned) != 6:
+            raise ValueError('Verification code must be exactly 6 digits.')
+        return cleaned
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

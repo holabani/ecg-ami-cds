@@ -3,10 +3,10 @@
 import json
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from models import Prediction, User
+from models import PendingRegistration, Prediction, User
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
@@ -23,6 +23,50 @@ def create_user(db: Session, email: str, password_hash: str) -> User:
 
 def get_user_by_id(db: Session, user_id: int) -> User | None:
     return db.get(User, user_id)
+
+
+def get_pending_by_email(db: Session, email: str) -> PendingRegistration | None:
+    em = email.lower().strip()
+    return db.execute(select(PendingRegistration).where(PendingRegistration.email == em)).scalar_one_or_none()
+
+
+def replace_pending_registration(
+    db: Session,
+    email: str,
+    password_hash: str,
+    otp_hash: str,
+    expires_at,
+) -> PendingRegistration:
+    em = email.lower().strip()
+    db.execute(delete(PendingRegistration).where(PendingRegistration.email == em))
+    row = PendingRegistration(
+        email=em,
+        password_hash=password_hash,
+        otp_hash=otp_hash,
+        expires_at=expires_at,
+        attempts=0,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_pending(db: Session, pending: PendingRegistration) -> None:
+    db.delete(pending)
+    db.commit()
+
+
+def delete_pending_by_email(db: Session, email: str) -> None:
+    em = email.lower().strip()
+    db.execute(delete(PendingRegistration).where(PendingRegistration.email == em))
+    db.commit()
+
+
+def bump_pending_attempt(db: Session, pending: PendingRegistration) -> None:
+    pending.attempts = (pending.attempts or 0) + 1
+    db.add(pending)
+    db.commit()
 
 
 def save_prediction(

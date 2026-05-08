@@ -12,7 +12,7 @@ All XAI modules degrade gracefully when optional libraries are absent.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 import numpy as np
@@ -42,15 +42,22 @@ from auth_util import (
     verify_password,
 )
 from crud import (
+    bump_pending_attempt,
     create_user,
+    delete_pending,
+    delete_pending_by_email,
+    get_pending_by_email,
     get_user_by_email,
     get_user_by_id,
     latest_prediction_for_patient,
     list_predictions_for_user,
     prediction_row_to_history_dict,
+    replace_pending_registration,
     save_prediction,
 )
+from email_service import send_registration_otp
 from database import get_db
+from otp_policy import MAX_OTP_VERIFY_ATTEMPTS, OTP_EXPIRE, generate_otp_code
 from models import User
 from metrics import (
     PREDICT_REQUESTS,
@@ -70,6 +77,8 @@ from schemas import (
     AlertItem,
     ExplainResponse,
     RegisterRequest,
+    RegisterPendingResponse,
+    RegisterVerifyRequest,
     LoginRequest,
     TokenResponse,
 )
@@ -157,11 +166,81 @@ def get_current_user(
     return user
 
 
-@app.post("/auth/register", response_model=TokenResponse)
+@app.post("/auth/register", response_model=RegisterPendingResponse)
 async def auth_register(body: RegisterRequest, db: Session = Depends(get_db)):
     if get_user_by_email(db, str(body.email)):
         raise HTTPException(status_code=400, detail="Email already registered")
-    user = create_user(db, str(body.email), hash_password(body.password))
+    otp_plain = generate_otp_code()
+    expires = datetime.now(timezone.utc) + OTP_EXPIRE
+    replace_pending_registration(
+        db,
+        str(body.email),
+        hash_password(body.password),
+        hash_password(otp_plain),
+        expires,
+    )
+    try:
+        send_registration_otp(
+            to_email=str(body.email).lower().strip(),
+            otp_plain=otp_plain,
+        )
+    except Exception as exc:
+        logger.exception("OTP email send failed: %s", exc)
+        delete_pending_by_email(db, str(body.email))
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Could not send verification email. Configure SMTP (see backend email_service) "
+                "or check server logs in console mode."
+            ),
+        ) from exc
+    return RegisterPendingResponse(
+        detail=(
+            "We emailed a 6-digit verification code (valid 15 minutes). "
+            "Enter it on the next screen to finish signing up."
+        ),
+        email=str(body.email).lower().strip(),
+    )
+
+
+@app.post("/auth/register/verify", response_model=TokenResponse)
+async def auth_register_verify(body: RegisterVerifyRequest, db: Session = Depends(get_db)):
+    email = str(body.email)
+    if get_user_by_email(db, email):
+        raise HTTPException(
+            status_code=400,
+            detail="This email is already registered — try logging in.",
+        )
+    pending = get_pending_by_email(db, email)
+    if pending is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No pending registration for this email. Start registration again.",
+        )
+    now = datetime.now(timezone.utc)
+    if pending.expires_at.tzinfo is None:
+        exp = pending.expires_at.replace(tzinfo=timezone.utc)
+    else:
+        exp = pending.expires_at
+    if now > exp:
+        delete_pending(db, pending)
+        raise HTTPException(
+            status_code=400,
+            detail="Verification code expired. Register again to receive a new code.",
+        )
+    if pending.attempts >= MAX_OTP_VERIFY_ATTEMPTS:
+        delete_pending(db, pending)
+        raise HTTPException(
+            status_code=400,
+            detail="Too many incorrect codes. Register again for a new OTP.",
+        )
+
+    if not verify_password(body.otp, pending.otp_hash):
+        bump_pending_attempt(db, pending)
+        raise HTTPException(status_code=401, detail="Invalid verification code.")
+
+    user = create_user(db, pending.email, pending.password_hash)
+    delete_pending(db, pending)
     token = create_access_token(user_id=user.id, email=user.email)
     return TokenResponse(access_token=token)
 

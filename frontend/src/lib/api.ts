@@ -61,6 +61,11 @@ export interface PredictRequest {
   ami_ground_truth?: boolean | null;
 }
 
+export interface RegisterPendingResponse {
+  detail: string;
+  email: string;
+}
+
 export interface TokenResponse {
   access_token: string;
   token_type: string;
@@ -154,8 +159,12 @@ export const getExplain = (patientId: string) =>
 export const login = (email: string, password: string) =>
   api.post<TokenResponse>('/auth/login', { email, password });
 
-export const register = (email: string, password: string) =>
-  api.post<TokenResponse>('/auth/register', { email, password });
+export const registerStart = (email: string, password: string) =>
+  api.post<RegisterPendingResponse>('/auth/register', { email, password });
+
+/** Final step after OTP is received by email (or printed in backend console/dev). */
+export const registerVerify = (email: string, otp: string) =>
+  api.post<TokenResponse>('/auth/register/verify', { email, otp });
 
 // ────────────────────────────────────────────
 // Helpers

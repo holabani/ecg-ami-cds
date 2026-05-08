@@ -24,16 +24,34 @@ class TestAuthRegister:
         )
         assert r.status_code == 422
 
-    def test_valid_password_returns_token(self, api_client):
+    def test_register_returns_pending_then_verify_returns_token(self, api_client):
         import uuid
 
+        from email_service import peek_last_otp_sent
+
         email = f"reg_{uuid.uuid4().hex[:16]}@example.com"
-        r = api_client.post(
-            "/auth/register",
-            json={"email": email, "password": "Abcd#9999"},
-        )
-        assert r.status_code == 200
-        assert "access_token" in r.json()
+        r1 = api_client.post("/auth/register", json={"email": email, "password": "Abcd#9999"})
+        assert r1.status_code == 200, r1.text
+        data = r1.json()
+        assert "detail" in data
+        assert data.get("email") == email.lower()
+        otp = peek_last_otp_sent()
+        assert otp is not None and len(otp) == 6
+        r2 = api_client.post("/auth/register/verify", json={"email": email, "otp": otp})
+        assert r2.status_code == 200, r2.text
+        assert "access_token" in r2.json()
+
+    def test_wrong_otp_returns_401(self, api_client):
+        import uuid
+
+        from email_service import peek_last_otp_sent
+
+        email = f"bad_{uuid.uuid4().hex[:12]}@example.com"
+        r1 = api_client.post("/auth/register", json={"email": email, "password": "Xyz#8877"})
+        assert r1.status_code == 200
+        assert peek_last_otp_sent()
+        r2 = api_client.post("/auth/register/verify", json={"email": email, "otp": "000000"})
+        assert r2.status_code == 401
 
 
 class TestHealth:

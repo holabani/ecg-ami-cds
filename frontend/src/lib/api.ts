@@ -71,6 +71,9 @@ export interface TokenResponse {
   token_type: string;
 }
 
+/** Confusion bucket when `ami_ground_truth` was sent with the predict request. */
+export type AmiEvalVsGroundTruth = 'tp' | 'tn' | 'fp' | 'fn' | null;
+
 export interface PredictResponse {
   patient_id: string;
 
@@ -98,7 +101,7 @@ export interface PredictResponse {
   preprocessing_applied: boolean;
 
   /** Present only if ami_ground_truth was sent: tp | tn | fp | fn */
-  ami_evaluation_vs_ground_truth?: 'tp' | 'tn' | 'fp' | 'fn' | null;
+  ami_evaluation_vs_ground_truth?: AmiEvalVsGroundTruth;
 }
 
 export interface HistoryItem {

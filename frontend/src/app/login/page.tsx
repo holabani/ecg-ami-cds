@@ -132,23 +132,30 @@ export default function LoginPage() {
   const showPasswordField = mode === 'login' || (mode === 'register' && registerPhase === 'credentials');
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#0f0f1a] px-4">
-      <div className="w-full max-w-md rounded-2xl border border-gray-800 bg-black/40 p-8 shadow-xl">
+    <div className="relative z-[200] flex min-h-screen flex-col items-center justify-center bg-[#0f0f1a] px-4">
+      <div className="relative z-[201] w-full max-w-md rounded-2xl border border-gray-800 bg-black/40 p-8 shadow-xl">
         <h1 className="mb-1 text-center text-2xl font-black text-red-500">CardioSense</h1>
         <p className="mb-6 text-center text-sm text-gray-400">Sign in to run predictions and view saved history</p>
 
-        <div className="mb-4 flex rounded-lg bg-gray-900 p-1">
+        <div className="relative z-[202] mb-4 flex rounded-lg bg-gray-900 p-1" role="tablist">
           <button
             type="button"
-            onClick={() => setMode('login')}
-            className={`flex-1 rounded-md py-2 text-sm font-medium ${mode === 'login' ? 'bg-red-600 text-white' : 'text-gray-400'}`}
+            role="tab"
+            aria-selected={mode === 'login'}
+            onClick={() => {
+              setMode('login');
+              setError(null);
+            }}
+            className={`relative z-[1] flex-1 cursor-pointer rounded-md py-2 text-sm font-medium touch-manipulation select-none active:opacity-90 ${mode === 'login' ? 'bg-red-600 text-white' : 'text-gray-400 hover:text-white'}`}
           >
             Login
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'register'}
             onClick={tabRegister}
-            className={`flex-1 rounded-md py-2 text-sm font-medium ${mode === 'register' ? 'bg-red-600 text-white' : 'text-gray-400'}`}
+            className={`relative z-[1] flex-1 cursor-pointer rounded-md py-2 text-sm font-medium touch-manipulation select-none active:opacity-90 ${mode === 'register' ? 'bg-red-600 text-white' : 'text-gray-400 hover:text-white'}`}
           >
             Register
           </button>
@@ -207,8 +214,12 @@ export default function LoginPage() {
                 className="w-full rounded-lg border border-gray-700 bg-black/60 px-3 py-2 font-mono text-lg tracking-[0.3em] text-white outline-none focus:border-red-500"
               />
               <p className="mt-1 text-xs text-gray-500">
-                Code expires in 15 minutes. Without SMTP configured, check the{' '}
-                <strong className="text-gray-400">backend terminal</strong> for the printed OTP.
+                Code expires in 15 minutes. With{' '}
+                <code className="text-gray-400">CARDIOSENSE_EMAIL_MODE=console</code> the OTP appears in the{' '}
+                <strong className="text-gray-400">backend</strong> terminal. Use{' '}
+                <code className="text-gray-400">resend</code> or SMTP in{' '}
+                <code className="text-gray-400">backend/.env</code> to deliver to the inbox (
+                <code className="text-gray-400">resend</code> is often simplest).
               </p>
             </div>
           )}

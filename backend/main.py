@@ -11,6 +11,13 @@ Five-stage pipeline per POST /predict:
 All XAI modules degrade gracefully when optional libraries are absent.
 """
 
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load backend/.env before any import that reads DATABASE_URL or SMTP settings.
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 import logging
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
@@ -55,7 +62,7 @@ from crud import (
     replace_pending_registration,
     save_prediction,
 )
-from email_service import send_registration_otp
+from email_service import email_delivery_user_hint, send_registration_otp
 from database import get_db
 from otp_policy import MAX_OTP_VERIFY_ATTEMPTS, OTP_EXPIRE, generate_otp_code
 from models import User
@@ -190,8 +197,9 @@ async def auth_register(body: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=503,
             detail=(
-                "Could not send verification email. Configure SMTP (see backend email_service) "
-                "or check server logs in console mode."
+                "Could not send verification email — "
+                f"{email_delivery_user_hint(exc)} "
+                "(Full traceback in backend logs.)"
             ),
         ) from exc
     return RegisterPendingResponse(

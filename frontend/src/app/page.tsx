@@ -328,9 +328,10 @@ export default function Home() {
             <div className="flex items-end">
 
               <button
+                type="button"
                 onClick={handlePredict}
                 disabled={loading}
-                className="rounded-lg bg-red-600 px-8 py-2 font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+                className="relative z-10 cursor-pointer rounded-lg bg-red-600 px-8 py-2 font-semibold text-white hover:bg-red-700 disabled:pointer-events-none disabled:opacity-50 transition-colors touch-manipulation"
               >
                 {loading ? (
                   <span className="flex items-center gap-2">

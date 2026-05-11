@@ -5,6 +5,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    # Host paths are relative to this compose file. Optional so `docker compose` works before
+    # you create backend/.env (copy from backend/.env.example). Requires Compose v2.24+.
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
       - PYTHONUNBUFFERED=1
       # Optional: HTTP(S) URL to download pretrained weights if no file in backend/checkpoints/

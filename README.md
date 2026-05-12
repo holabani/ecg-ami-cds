@@ -106,7 +106,7 @@ flowchart TB
   end
   subgraph Obs["Observability"]
     Prom[Prometheus :9090]
-    Graf[Grafana :3010]
+    Graf[Grafana :3000]
   end
   subgraph Mail["Optional email"]
     SMTP[Gmail / SMTP]

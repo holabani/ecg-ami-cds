@@ -35,8 +35,8 @@ export default function LoginPage() {
     if (n && n.startsWith('/')) setNextPath(n);
   }, []);
 
-  const [email, setEmail] = useState('demo@example.com');
-  const [password, setPassword] = useState('Demo#12345');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [registerPhase, setRegisterPhase] = useState<'credentials' | 'otp'>('credentials');
@@ -214,12 +214,7 @@ export default function LoginPage() {
                 className="w-full rounded-lg border border-gray-700 bg-black/60 px-3 py-2 font-mono text-lg tracking-[0.3em] text-white outline-none focus:border-red-500"
               />
               <p className="mt-1 text-xs text-gray-500">
-                Code expires in 15 minutes. With{' '}
-                <code className="text-gray-400">CARDIOSENSE_EMAIL_MODE=console</code> the OTP appears in the{' '}
-                <strong className="text-gray-400">backend</strong> terminal. Use{' '}
-                <code className="text-gray-400">resend</code> or SMTP in{' '}
-                <code className="text-gray-400">backend/.env</code> to deliver to the inbox (
-                <code className="text-gray-400">resend</code> is often simplest).
+                Code expires in 15 minutes. If you don&apos;t see the email, check spam or junk.
               </p>
             </div>
           )}
@@ -255,11 +250,7 @@ export default function LoginPage() {
           </button>
         )}
 
-        <p className="mt-6 text-center text-xs text-gray-500">
-          Demo login (no OTP): <strong className="text-gray-400">demo@example.com</strong> /{' '}
-          <strong className="text-gray-400">Demo#12345</strong>
-        </p>
-        <Link href="/" className="mt-4 block text-center text-sm text-gray-400 hover:text-white">
+        <Link href="/" className="mt-6 block text-center text-sm text-gray-400 hover:text-white">
           ← Back to home (still need to sign in)
         </Link>
       </div>

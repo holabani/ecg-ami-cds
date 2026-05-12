@@ -209,7 +209,7 @@ docker compose up --build
 | **Frontend** | http://localhost:3000 | Next.js UI |
 | **Backend API** | http://localhost:8000 | OpenAPI: **http://localhost:8000/docs** |
 | **Prometheus** | http://localhost:9090 | Scrapes `backend:8000/metrics` on Docker network |
-| **Grafana** | http://localhost:3010 | Default login **`admin` / `admin`** |
+| **Grafana** | http://localhost:3000 | Default login **`admin` / `admin`** |
 
 > **Port 3000 busy?** Run the frontend locally: `npm run dev -- -p 3001` and set `NEXT_PUBLIC_API_URL=http://localhost:8000`.
 
@@ -286,7 +286,7 @@ Use the **same mailbox** for `USER` and the address inside `SMTP_FROM` to reduce
 
 ### Grafana
 
-- **URL:** http://localhost:3010  
+- **URL:** http://localhost:3000  
 - **Login:** `admin` / `admin` (change in real deployments).  
 - **Datasource:** Prometheus (auto-provisioned, UID `prometheus`).  
 - **Dashboard:** **CardioSense — Overview** (folder *CardioSense*) — panels include:

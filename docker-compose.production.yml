@@ -1,8 +1,8 @@
 # CardioSense — single-host EC2 deployment (docker compose -f docker-compose.production.yml up -d --build)
 #
 # Before first build, set in .env next to this file (or export):
-#   NEXT_PUBLIC_API_URL=http://YOUR_EC2_PUBLIC_DNS:8000
-#   Or https://api.yourdomain.com  (must match what the browser will use to reach FastAPI)
+#   NEXT_PUBLIC_API_URL=https://api.your.domain  (recommended behind nginx TLS on 443)
+#   Legacy: http://EC2_PUBLIC_IP:8000 (only while ports published to 0.0.0.0)
 #
 # Prereqs: copy backend/.env from backend/.env.production.example (secrets, JWT, SMTP, DB path).
 #
@@ -14,8 +14,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      # Public API — restrict with EC2 SG + optional nginx later; or use "127.0.0.1:8000:8000" + reverse proxy only
-      - "8000:8000"
+      # localhost only — reachable publicly via nginx on 443 (see deploy/nginx/cardiosense-ec2.conf)
+      - "127.0.0.1:8000:8000"
     env_file:
       - path: ./backend/.env
         required: false
@@ -58,6 +58,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-in-env}
       GF_USERS_DEFAULT_THEME: dark
       GF_SERVER_HTTP_PORT: "3000"
+      # Full public URL Grafana is served at (nginx + TLS). Required for redirects / links behind reverse proxy.
+      GF_SERVER_ROOT_URL: ${GRAFANA_SERVER_ROOT_URL:-http://127.0.0.1:3010/}
     volumes:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/grafana/dashboards:/etc/grafana/dashboards:ro
@@ -76,7 +78,7 @@ services:
         # Set in repo-root .env (see deploy/env.ec2.example). Must be the browser-reachable API URL.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       NODE_ENV: production
     depends_on:
@@ -87,3 +89,6 @@ services:
 volumes:
   cardiosense-backend-data:
   prometheus-tsdb:
+
+# HTTPS rollout note: nginx on the EC2 host must proxy to loopback BEFORE you rely solely on this file,
+# otherwise direct hits to PUBLIC_IP:3000/:8000 stop working. See deploy/nginx/cardiosense-ec2.conf.

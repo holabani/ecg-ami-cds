@@ -2,6 +2,9 @@ __pycache__
 *.pyc
 .git
 *.md
+
+# Exclude local secrets from the IMAGE BUILD CONTEXT (.env stays on disk and is mounted by
+# docker-compose.yml via env_file — do not bake .env layers into Docker images.)
 .env*
 .venv
 venv

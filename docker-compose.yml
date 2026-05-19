@@ -5,14 +5,50 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    # Host paths are relative to this compose file. Optional so `docker compose` works before
+    # you create backend/.env (copy from backend/.env.example). Requires Compose v2.24+.
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
       - PYTHONUNBUFFERED=1
+      # Optional: HTTP(S) URL to download pretrained weights if no file in backend/checkpoints/
+      # - CARDIOSENSE_CHECKPOINT_URL=https://github.com/<you>/<repo>/releases/download/v1.0/best_model_fold1.pt
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: dark
+      GF_SERVER_HTTP_PORT: "3000"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "3010:3000"
+    depends_on:
+      - prometheus
 
   frontend:
     build:

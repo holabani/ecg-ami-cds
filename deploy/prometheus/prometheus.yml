@@ -1,0 +1,20 @@
+# CardioSense — Prometheus (Docker Compose)
+#
+# Compose service name `backend` resolves on the default Docker network.
+#
+# Scrape from laptop (Prometheus not in Compose, backend on host port 8000): set
+# targets to `host.docker.internal:8000` (macOS/Windows) or `localhost:8000` (Linux host network).
+#
+# Metrics include:
+#   ecg_http_* , ecg_predict_* , ecg_ami_* , ecg_ami_confusion_vs_ground_truth_* (when GT sent)
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: cardiSense-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - backend:8000

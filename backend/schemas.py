@@ -1,7 +1,62 @@
 """Pydantic schemas for CardioSense API request and response models."""
 
-from pydantic import BaseModel, Field
-from typing import Optional
+import re
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import Literal, Optional
+
+
+def validate_password_policy(password: str) -> str:
+    """Registration: ≥8 chars, lowercase, uppercase, and one special character."""
+    if len(password) > 128:
+        raise ValueError('Password must be at most 128 characters.')
+    if len(password) < 8:
+        raise ValueError('Password must be at least 8 characters.')
+    if not re.search(r'[a-z]', password):
+        raise ValueError('Password must include a lowercase letter.')
+    if not re.search(r'[A-Z]', password):
+        raise ValueError('Password must include an uppercase letter.')
+    if not re.search(r'[^A-Za-z0-9]', password):
+        raise ValueError('Password must include at least one special character.')
+    return password
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator('password')
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        return validate_password_policy(v)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class RegisterPendingResponse(BaseModel):
+    detail: str
+    email: EmailStr
+
+
+class RegisterVerifyRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(..., min_length=6, max_length=6)
+
+    @field_validator('otp')
+    @classmethod
+    def otp_normalise(cls, v: str) -> str:
+        cleaned = v.strip().replace(' ', '')
+        if not cleaned.isdigit() or len(cleaned) != 6:
+            raise ValueError('Verification code must be exactly 6 digits.')
+        return cleaned
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 class PredictRequest(BaseModel):
@@ -26,6 +81,15 @@ class PredictRequest(BaseModel):
     sampling_rate: int = Field(
         500,
         description="ECG sampling frequency in Hz. 500 Hz for clinical recordings, 100 Hz for PTB-XL.",
+    )
+    ami_ground_truth: Optional[bool] = Field(
+        None,
+        description=(
+            "Optional reference label for retrospective monitoring only. "
+            "true = AMI present (e.g. angiographer-confirmed MI), false = no AMI. "
+            "When set, Prometheus updates confusion counters (tp/tn/fp/fn) using the "
+            "same threshold as ami_probability ≥ 0.5 for predicted positive."
+        ),
     )
 
 
@@ -80,6 +144,17 @@ class PredictResponse(BaseModel):
     )
     preprocessing_applied: bool = Field(
         ..., description="True if SciPy bandpass/notch filtering was applied"
+    )
+
+    # --- Ground-truth evaluation (only when ami_ground_truth was sent on request)
+    ami_evaluation_vs_ground_truth: Optional[
+        Literal["tp", "tn", "fp", "fn"]
+    ] = Field(
+        None,
+        description=(
+            "If request included ami_ground_truth: confusion cell vs AMI_BINARY_THRESHOLD — "
+            "tp=true positive, tn=true negative, fp=false positive, fn=false negative"
+        ),
     )
 
 

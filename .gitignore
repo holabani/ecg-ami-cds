@@ -18,9 +18,15 @@ env/
 backend/data/
 data/
 
-# Model checkpoints — large binary files
-backend/checkpoints/
-checkpoints/
+# Model checkpoints — ignore local training outputs; allow shipping pretrained files
+backend/checkpoints/*
+!backend/checkpoints/README.md
+!backend/checkpoints/best_model_fold1.pt
+!backend/checkpoints/best_model.pt
+checkpoints/*
+!checkpoints/README.md
+!checkpoints/best_model_fold1.pt
+!checkpoints/best_model.pt
 
 # Training logs
 backend/training.log
@@ -32,6 +38,11 @@ frontend/node_modules/
 node_modules/
 frontend/.next/
 .next/
+
+# SQLite (auth + prediction history — FYP demo DB)
+backend/cardiosense.db
+backend/_cardiosense_test.sqlite
+backend/tests/_cardiosense_test.sqlite
 
 # Environment files
 .env

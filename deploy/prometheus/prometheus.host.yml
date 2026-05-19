@@ -1,0 +1,16 @@
+# Prometheus when everything runs on your Mac (no Docker).
+# Start backend first: uvicorn on http://127.0.0.1:8000
+#
+# Run:
+#   prometheus --config.file=deploy/prometheus/prometheus.host.yml
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: cardiSense-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - localhost:8000

@@ -4,8 +4,46 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE,
-  headers: { 'Content-Type': 'application/json' },
 });
+
+api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('cardiosense_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (
+      typeof window !== 'undefined' &&
+      error?.response?.status === 401 &&
+      !window.location.pathname.startsWith('/login')
+    ) {
+      localStorage.removeItem('cardiosense_token');
+      window.location.assign(`${window.location.origin}/login`);
+    }
+    return Promise.reject(error);
+  }
+);
+
+export function logoutClient(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem('cardiosense_token');
+  } finally {
+    // Full navigation — reliable with App Router + AuthGate (client router alone can stick on cached shells).
+    const base = window.location.origin;
+    window.location.assign(`${base}/login`);
+  }
+}
 
 // ────────────────────────────────────────────
 // Request types
@@ -16,11 +54,25 @@ export interface PredictRequest {
   /** 12 leads × T samples (2D array recommended) or flat 12×T list */
   ecg_data: number[][] | number[];
   sampling_rate?: number;
+  /**
+   * Optional reference AMI label (from discharge Dx or expert read) for retrospective
+   * monitoring. When set, Prometheus records tp/tn/fp/fn vs model threshold 0.5.
+   */
+  ami_ground_truth?: boolean | null;
 }
 
-// ────────────────────────────────────────────
-// Response types
-// ────────────────────────────────────────────
+export interface RegisterPendingResponse {
+  detail: string;
+  email: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
+/** Confusion bucket when `ami_ground_truth` was sent with the predict request. */
+export type AmiEvalVsGroundTruth = 'tp' | 'tn' | 'fp' | 'fn' | null;
 
 export interface PredictResponse {
   patient_id: string;
@@ -47,6 +99,9 @@ export interface PredictResponse {
   // Pipeline metadata
   inference_mode: string;
   preprocessing_applied: boolean;
+
+  /** Present only if ami_ground_truth was sent: tp | tn | fp | fn */
+  ami_evaluation_vs_ground_truth?: AmiEvalVsGroundTruth;
 }
 
 export interface HistoryItem {
@@ -89,6 +144,10 @@ export interface ExplainResponse {
 export const predict = (data: PredictRequest) =>
   api.post<PredictResponse>('/predict', data);
 
+/** Multipart: FormData keys — patient_id, sampling_rate (string), ami_ground_truth?, csv_file?, wfdb_header?, wfdb_signal? */
+export const predictUpload = (formData: FormData) =>
+  api.post<PredictResponse>('/predict/upload', formData);
+
 export const getHistory = () =>
   api.get<{ predictions: HistoryItem[]; total: number }>('/history');
 
@@ -100,6 +159,16 @@ export const getHealth = () => api.get('/health');
 export const getExplain = (patientId: string) =>
   api.get<ExplainResponse>(`/explain/${patientId}`);
 
+export const login = (email: string, password: string) =>
+  api.post<TokenResponse>('/auth/login', { email, password });
+
+export const registerStart = (email: string, password: string) =>
+  api.post<RegisterPendingResponse>('/auth/register', { email, password });
+
+/** Final step after OTP is received by email (or printed in backend console/dev). */
+export const registerVerify = (email: string, otp: string) =>
+  api.post<TokenResponse>('/auth/register/verify', { email, otp });
+
 // ────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────
@@ -107,19 +176,23 @@ export const getExplain = (patientId: string) =>
 /** Generate a synthetic 12-lead ECG (12 leads × 1000 samples). */
 export function generateSyntheticECG(seed: number = 42): number[][] {
   const leads: number[][] = [];
-  const baseFreqs = [1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2];
   const rng = mulberry32(seed);
+  /** Heart-rate–like rate + per-lead morphology so the model does not see 12 identical traces. */
+  const rate = 1.0 + ((seed % 97) / 97) * 0.45;
 
   for (let lead = 0; lead < 12; lead++) {
     const samples: number[] = [];
-    const hr = baseFreqs[lead];
+    const hr = rate * (0.92 + 0.012 * lead + 0.03 * (rng() - 0.5));
+    const phase0 = (lead * 0.31 + (seed % 13) * 0.07 + rng() * 0.4) % (2 * Math.PI);
+    const qrsGain = 0.55 + 0.28 * Math.sin((lead + seed) * 0.7) + 0.12 * rng();
+    const tGain = 0.15 + 0.22 * ((lead + seed * 3) % 5) / 5;
+
     for (let t = 0; t < 1000; t++) {
-      const phase = (2 * Math.PI * hr * t) / 100;
-      // Simplified ECG-like waveform (P + QRS + T)
-      const p = 0.15 * Math.sin(phase - 0.5);
-      const qrs = 1.0 * Math.exp(-0.5 * ((Math.sin(phase) - 0.9) ** 2) / 0.01);
-      const t_wave = 0.3 * Math.sin(phase + 1.2);
-      const noise = 0.02 * (rng() - 0.5);
+      const phase = phase0 + (2 * Math.PI * hr * t) / 100;
+      const p = 0.12 * Math.sin(phase - 0.5);
+      const qrs = qrsGain * Math.exp(-0.5 * ((Math.sin(phase) - 0.9) ** 2) / 0.01);
+      const t_wave = tGain * Math.sin(phase + 1.2);
+      const noise = 0.035 * (rng() - 0.5);
       samples.push(p + qrs + t_wave + noise);
     }
     leads.push(samples);

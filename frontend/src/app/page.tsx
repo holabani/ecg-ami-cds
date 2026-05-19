@@ -16,11 +16,15 @@ import {
 } from 'recharts';
 import {
   predict,
+  predictUpload,
   generateSyntheticECG,
   riskColour,
   riskLabel,
   type PredictResponse,
 } from '@/lib/api';
+import LogoutButton from '@/components/LogoutButton';
+
+type WaveformSource = 'synthetic' | 'csv' | 'wfdb';
 
 // ── Nav ──────────────────────────────────────────────────────────────────────
 
@@ -31,7 +35,7 @@ function Nav({ active }: { active: string }) {
     { href: '/alerts', label: 'Alerts' },
   ];
   return (
-    <nav className="border-b border-gray-800 bg-black/30 backdrop-blur sticky top-0 z-10">
+    <nav className="sticky top-0 z-50 border-b border-gray-800 bg-black/30 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
         <div className="flex items-center gap-3">
           <span className="text-2xl font-black tracking-tight text-red-500">CardioSense</span>
@@ -39,20 +43,23 @@ function Nav({ active }: { active: string }) {
             AI ECG CDS
           </span>
         </div>
-        <div className="flex gap-6">
-          {links.map(({ href, label }) => (
-            <Link
-              key={href}
-              href={href}
-              className={
-                active === label
-                  ? 'font-semibold text-red-400 underline underline-offset-4'
-                  : 'text-gray-400 hover:text-white transition-colors'
-              }
-            >
-              {label}
-            </Link>
-          ))}
+        <div className="flex items-center gap-4">
+          <div className="flex gap-6">
+            {links.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                className={
+                  active === label
+                    ? 'font-semibold text-red-400 underline underline-offset-4'
+                    : 'text-gray-400 hover:text-white transition-colors'
+                }
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+          <LogoutButton />
         </div>
       </div>
     </nav>
@@ -113,6 +120,12 @@ function LeadSaliencyBar({ leadName, value }: { leadName: string; value: number 
 
 export default function Home() {
   const [patientId, setPatientId] = useState('');
+  const [source, setSource] = useState<WaveformSource>('synthetic');
+  const [samplingRate, setSamplingRate] = useState<number>(100);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [wfdbHea, setWfdbHea] = useState<File | null>(null);
+  const [wfdbDat, setWfdbDat] = useState<File | null>(null);
+
   const [result, setResult] = useState<PredictResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,17 +135,49 @@ export default function Home() {
       setError('Please enter a patient ID');
       return;
     }
+    if (source === 'csv' && !csvFile) {
+      setError('Choose a CSV file (12 columns per row, ≥200 samples, or 12 lead rows).');
+      return;
+    }
+    if (source === 'wfdb' && (!wfdbHea || !wfdbDat)) {
+      setError('WFDB uploads need both matching .hea and .dat files (same basename, e.g. record.hea / record.dat).');
+      return;
+    }
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      // Generate synthetic 12-lead ECG (12 × 1000 samples)
-      const seed = patientId.split('').reduce((s, c) => s + c.charCodeAt(0), 0);
-      const ecgData = generateSyntheticECG(seed);
-      const res = await predict({ patient_id: patientId, ecg_data: ecgData, sampling_rate: 100 });
-      setResult(res.data);
+      if (source === 'synthetic') {
+        const seed = patientId.split('').reduce((s, c) => s + c.charCodeAt(0), 0);
+        const ecgData = generateSyntheticECG(seed);
+        const res = await predict({ patient_id: patientId, ecg_data: ecgData, sampling_rate: samplingRate });
+        setResult(res.data);
+      } else {
+
+        const fd = new FormData();
+        fd.append('patient_id', patientId.trim());
+        fd.append('sampling_rate', String(samplingRate));
+        if (source === 'csv' && csvFile) fd.append('csv_file', csvFile);
+        if (source === 'wfdb' && wfdbHea && wfdbDat) {
+
+          fd.append('wfdb_header', wfdbHea);
+          fd.append('wfdb_signal', wfdbDat);
+        }
+        const res = await predictUpload(fd);
+        setResult(res.data);
+      }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Prediction failed. Is the backend running?');
+
+      let msg = 'Prediction failed. Is the backend running?';
+      if (e && typeof e === 'object' && 'response' in e) {
+        const ax = e as { response?: { data?: { detail?: string | unknown } } };
+        const d = ax.response?.data?.detail;
+
+        if (typeof d === 'string') msg = d;
+        else if (Array.isArray(d)) msg = JSON.stringify(d);
+      } else if (e instanceof Error) msg = e.message;
+      setError(msg);
+
     } finally {
       setLoading(false);
     }
@@ -178,6 +223,53 @@ export default function Home() {
         {/* Input panel */}
         <div className="mb-8 rounded-xl border border-gray-800 bg-gray-900/60 p-6">
           <h3 className="mb-4 text-lg font-semibold">Run Prediction</h3>
+          <div className="mb-4 flex flex-wrap gap-6 text-sm">
+            <fieldset className="space-y-2">
+              <legend className="mb-2 text-xs uppercase tracking-wide text-gray-500">Waveform source</legend>
+              {(
+                [
+                  ['synthetic', 'Synthetic demo (12×1000)'] as const,
+                  ['csv', 'CSV upload'] as const,
+                  ['wfdb', 'WFDB (.hea + .dat)'] as const,
+                ] as const
+              ).map(([val, lab]) => (
+                <label key={val} className="flex cursor-pointer items-center gap-2">
+                  <input
+
+                    type="radio"
+                    name="src"
+                    checked={source === val}
+                    onChange={() => {
+
+                      setSource(val);
+                      setError(null);
+
+
+                    }}
+
+                    className="accent-red-500"
+                  />
+                  <span className={source === val ? 'text-white' : 'text-gray-400'}>{lab}</span>
+                </label>
+              ))}
+            </fieldset>
+
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wide text-gray-500">Sampling rate</label>
+              <select
+                value={samplingRate}
+                onChange={(e) => setSamplingRate(Number(e.target.value))}
+                className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white"
+              >
+                <option value={100}>100 Hz (PTB-XL records100)</option>
+                <option value={250}>250 Hz</option>
+                <option value={360}>360 Hz</option>
+                <option value={500}>500 Hz (clinical)</option>
+
+              </select>
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 min-w-48">
               <label className="mb-1 block text-sm text-gray-400">Patient ID</label>
@@ -190,11 +282,56 @@ export default function Home() {
                 className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-white placeholder-gray-500 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
               />
             </div>
+
+            {source === 'csv' && (
+              <div className="min-w-56 flex-1">
+                <label className="mb-1 block text-sm text-gray-400">CSV (12 numeric columns × ≥200 rows)</label>
+                <input
+                  type="file"
+
+                  accept=".csv,text/csv"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-2 py-2 text-sm text-gray-200 file:mr-2 file:rounded file:border-0 file:bg-red-600 file:px-3 file:py-1 file:text-white"
+                  onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
+                />
+
+              </div>
+            )}
+            {source === 'wfdb' && (
+              <div className="flex flex-1 flex-wrap gap-4 min-w-56">
+
+                <div className="min-w-[12rem]">
+                  <label className="mb-1 block text-sm text-gray-400">WFDB header</label>
+
+                  <input
+                    type="file"
+                    accept=".hea,.HEA"
+
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-2 py-2 text-sm text-gray-200 file:mr-2 file:rounded file:border-0 file:bg-red-600 file:px-3 file:py-1 file:text-white"
+                    onChange={(e) => setWfdbHea(e.target.files?.[0] ?? null)}
+                  />
+
+                </div>
+
+
+                <div className="min-w-[12rem]">
+                  <label className="mb-1 block text-sm text-gray-400">WFDB signal</label>
+                  <input
+                    type="file"
+
+                    accept=".dat,.DAT"
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-2 py-2 text-sm text-gray-200 file:mr-2 file:rounded file:border-0 file:bg-red-600 file:px-3 file:py-1 file:text-white"
+                    onChange={(e) => setWfdbDat(e.target.files?.[0] ?? null)}
+                  />
+                </div>
+              </div>
+            )}
             <div className="flex items-end">
+
               <button
+                type="button"
                 onClick={handlePredict}
                 disabled={loading}
-                className="rounded-lg bg-red-600 px-8 py-2 font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+                className="relative z-10 cursor-pointer rounded-lg bg-red-600 px-8 py-2 font-semibold text-white hover:bg-red-700 disabled:pointer-events-none disabled:opacity-50 transition-colors touch-manipulation"
               >
                 {loading ? (
                   <span className="flex items-center gap-2">
@@ -212,7 +349,13 @@ export default function Home() {
           </div>
           {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
           <p className="mt-3 text-xs text-gray-500">
-            Generates a synthetic 12-lead ECG (12 × 1000 samples) seeded to the patient ID.
+            <strong>Synthetic:</strong> 12 × 1000 samples seeded by patient ID.{' '}
+
+            <strong>CSV:</strong> each row = one time sample, 12 comma-separated floats (PhysioBank-style exports).{' '}
+
+            <strong>WFDB:</strong> PTB-XL-style pair with the same base name (<code className="text-gray-400">0010_lr.hea</code> +{' '}
+
+            <code className="text-gray-400">0010_lr.dat</code>). Set sampling rate to 100 Hz for <code className="text-gray-400">records100</code>.
           </p>
         </div>
 

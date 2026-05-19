@@ -12,7 +12,11 @@ build/
 backend/venv/
 venv/
 .venv/
+.venv-ppt/
 env/
+
+# Deck generator caches
+.matplotlib-cache/
 
 # Data — large files, not for version control
 backend/data/

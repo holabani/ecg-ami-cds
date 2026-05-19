@@ -12,11 +12,31 @@ All XAI modules degrade gracefully when optional libraries are absent.
 """
 
 from pathlib import Path
+import os
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 # Load backend/.env before any import that reads DATABASE_URL or SMTP settings.
-load_dotenv(Path(__file__).resolve().parent / ".env")
+_dotenv_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(_dotenv_path)
+
+# Gmail/SMTP: when backend/.env defines a value, prefer it over stale shell/IDE exports
+# (load_dotenv uses override=False — old exports like YOUR_GMAIL placeholders would win otherwise).
+# Docker images exclude .env from the build; dotenv_values empty here → Compose env unchanged.
+_file_vals = dotenv_values(_dotenv_path)
+for _k in (
+    "CARDIOSENSE_SMTP_USER",
+    "CARDIOSENSE_SMTP_PASSWORD",
+    "CARDIOSENSE_SMTP_FROM",
+    "CARDIOSENSE_SMTP_HOST",
+    "CARDIOSENSE_SMTP_PORT",
+    "CARDIOSENSE_SMTP_ENCRYPTION",
+    "CARDIOSENSE_EMAIL_MODE",
+):
+    _v = _file_vals.get(_k)
+    if _v is not None and str(_v).strip():
+        os.environ[_k] = str(_v).strip()
+
 
 import logging
 from datetime import datetime, timezone
@@ -194,18 +214,18 @@ async def auth_register(body: RegisterRequest, db: Session = Depends(get_db)):
     except Exception as exc:
         logger.exception("OTP email send failed: %s", exc)
         delete_pending_by_email(db, str(body.email))
+        logger.error("OTP delivery hint (operators): %s", email_delivery_user_hint(exc))
         raise HTTPException(
             status_code=503,
             detail=(
-                "Could not send verification email — "
-                f"{email_delivery_user_hint(exc)} "
-                "(Full traceback in backend logs.)"
+                "We couldn't send the verification email. Please try again in a few minutes. "
+                "If this keeps happening, contact support."
             ),
         ) from exc
     return RegisterPendingResponse(
         detail=(
             "We emailed a 6-digit verification code (valid 15 minutes). "
-            "Enter it on the next screen to finish signing up."
+            "Enter it below to finish signing up."
         ),
         email=str(body.email).lower().strip(),
     )
